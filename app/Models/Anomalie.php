@@ -22,4 +22,8 @@ class Anomalie extends Model
         {
             return $this->belongsTo(Passage::class);
         }
+        public function messagesSortants(): HasMany
+        {
+            return $this->hasMany(MessageSortant::class, 'anomalie_id');
+        }
 }

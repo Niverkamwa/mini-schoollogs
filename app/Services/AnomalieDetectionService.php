@@ -15,6 +15,10 @@ class AnomalieDetectionService
     public const SEUIL_DOUBLE_SCAN_SECONDES = 60;
     public const SEUIL_HORLOGE_DECALEE_SECONDES = 120;
 
+    public function __construct(
+        private readonly ?NotificationService $notificationService = null
+    ) {}
+
     /**
      * Analyse un passage nouvellement enregistré et crée les anomalies pertinentes.
      *
@@ -277,7 +281,7 @@ class AnomalieDetectionService
             return $existante;
         }
 
-        return Anomalie::create([
+        $nouvelle = Anomalie::create([
             'eleve_id' => $eleveId,
             'type' => $type,
             'date_locale' => $dateLocale,
@@ -285,5 +289,9 @@ class AnomalieDetectionService
             'passage_id' => $passageId,
             'etat_traitement' => 'ouverte',
         ]);
+
+        ($this->notificationService ?? app(NotificationService::class))->notifierPourAnomalie($nouvelle);
+
+        return $nouvelle;
     }
 }

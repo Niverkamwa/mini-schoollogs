@@ -34,3 +34,8 @@
 - **Choix retenu :** ajouter le type d'anomalie `hors_heures_etablissement` lorsqu'un badge est scanné en dehors de la plage normale d'activité de l'établissement (en dehors de 06h00–20h00 ou un dimanche sans activité prévue).
 - **Alternatives écartées :** détecter un décalage d'horloge uniquement via une anomalie dédiée ou ne lever qu'une alerte générique `hors_fenetre` même pour un passage nocturne isolé.
 - **Raison :** distinguer un simple retard ou une sortie anticipée en journée scolaire d'un événement inhabituel en pleine nuit ou hors ouverture de l'établissement, qui mérite une vigilance particulière du responsable et du parent.
+
+## Décision 8 — Notifications parents découplées, neutres et plafonnées par jour
+- **Choix retenu :** isoler l'envoi derrière `NotificateurParentInterface` (`SimulateurNotificateurParent` par défaut), composer un message neutre sans donnée sensible pour chaque parent lié à l'élève, respecter l'unicité `(anomalie_id, parent_id)` et appliquer un plafond journalier configurable par élève (`non_envoye_plafond` avec `motif_non_envoi` explicite au-delà).
+- **Alternatives écartées :** appeler directement un fournisseur externe dans le service d'anomalies ou envoyer un message par anomalie sans limite journalière ni contrôle de doublon.
+- **Raison :** faciliter le branchement d'un fournisseur SMS réel sans toucher au domaine, éviter la saturation des parents en cas d'incidents répétés et garder la traçabilité complète en base (`messages_sortants`).
