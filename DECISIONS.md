@@ -18,3 +18,7 @@
 - **Choix retenu :** générer un jeton à fenêtre temporelle courte (pas de 60 secondes avec tolérance contrôlée) signé avec `hash_hmac('sha256', ...)` à partir du `secret` chiffré (`'encrypted'`) du badge, vérifié via `hash_equals()`, et révoquer l'ancien badge lors d'un renouvellement.
 - **Alternatives écartées :** utiliser un identifiant statique en clair dans le QR code / badge sans rotation ni signature.
 - **Raison :** limiter la rejouabilité d'un code capturé et gérer proprement le cycle de vie (`actif`, `suspendu`, `perdu`, `revoque`).
+## Décision 5 — Synchronisation hors-ligne idempotente et alignement du schéma `passages`
+- **Choix retenu :** dédupliquer chaque scan via `client_event_id` (et `local_event_id`) dans `PassageSyncController::sync()` avec double contrôle avant et dans une transaction `DB::transaction()`, rendre `appareil_id` nullable sur `passages`, et enregistrer systématiquement les horodatages au format `datetime` (`heure_locale`, `heure_corrigee`, `heure_serveur`, `heure_retenue`, `horodatage_appareil`, `horodatage_serveur`) avec `resultat_controle = 'valide'` et `etat_synchronisation = 'synchronise'`.
+- **Alternatives écartées :** insérer directement chaque événement reçu sans clé d'idempotence client ou exiger un `appareil_id` non nul bloquant les terminaux mobiles non enregistrés.
+- **Raison :** éviter tout doublon en base lors d'une coupure réseau, d'un redémarrage du terminal ou d'un rejeu de lot, tout en conservant la trace des heures appareil et serveur pour la détection d'anomalies (`horloge_decalee`).
