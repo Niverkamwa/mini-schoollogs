@@ -13,4 +13,13 @@ class Anomalie extends Model
     {
         return $this->belongsTo(Eleve::class);
     }
+        public function fenetre(): BelongsTo
+    {
+        return $this->belongsTo(Fenetre::class);
+    }
+
+        public function passage(): BelongsTo
+        {
+            return $this->belongsTo(Passage::class);
+        }
 }
