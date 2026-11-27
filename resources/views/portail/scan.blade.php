@@ -48,8 +48,13 @@
             </div>
 
             <div>
-                <label for="jeton" class="block text-sm font-medium text-slate-700 mb-1">Jeton tournant du badge</label>
-                <input id="jeton" type="text" value="{{ $jetonExemple }}" placeholder="v1.<public_id>.<slot>.<signature>"
+                <div class="flex items-center justify-between gap-2 mb-1">
+                    <label for="jeton" class="block text-sm font-medium text-slate-700">Jeton tournant du badge</label>
+                    <button type="button" id="btn-effacer-jeton" class="text-xs text-blue-700 hover:underline">
+                        Vider le champ
+                    </button>
+                </div>
+                <input id="jeton" type="text" value="{{ $jetonExemple }}" placeholder="Coller un jeton v1.<public_id>.<slot>.<signature>"
                        class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono">
             </div>
 
@@ -93,11 +98,16 @@
     const STORAGE_KEY = 'schoollogs_file_passages_v1';
     let reseauActif = true;
     let interrompu = false;
+    let envoiEnCours = false;
+    let syncEnCours = false;
 
     const badgeReseau = document.getElementById('etat-reseau-badge');
     const compteurFile = document.getElementById('compteur-file');
     const journalSync = document.getElementById('journal-sync');
     const messageScan = document.getElementById('message-scan');
+    const btnScanner = document.getElementById('btn-scanner');
+    const btnSimuler20 = document.getElementById('btn-simuler-20');
+    const inputJeton = document.getElementById('jeton');
 
     function lireFile() {
         try {
@@ -136,10 +146,10 @@
         return new Promise((resolve) => setTimeout(resolve, ms));
     }
 
-    function construireEvenement() {
+    function construireEvenement(indexOffsetSeconds = 0) {
         const decalageHeures = parseFloat(document.getElementById('decalage_heures').value || '0') || 0;
-        const heureLocale = new Date(Date.now() + decalageHeures * 3600 * 1000).toISOString();
-        const jeton = document.getElementById('jeton').value.trim();
+        const heureLocale = new Date(Date.now() + decalageHeures * 3600 * 1000 + indexOffsetSeconds * 1000).toISOString();
+        const jeton = inputJeton.value.trim();
 
         return {
             client_event_id: uuid(),
@@ -155,6 +165,10 @@
     }
 
     async function envoyerLot(lot) {
+        if (!reseauActif) {
+            throw new Error('Réseau coupé');
+        }
+
         const csrf = document.querySelector('meta[name="csrf-token"]').content;
         const resp = await fetch("{{ route('api.passages.sync') }}", {
             method: 'POST',
@@ -166,104 +180,177 @@
             body: JSON.stringify({ evenements: lot }),
         });
 
-        if (!resp.ok) {
-            throw new Error(`HTTP ${resp.status}`);
+        const texteReponse = await resp.text();
+        let data = {};
+        try {
+            data = JSON.parse(texteReponse);
+        } catch {
+            data = { brut: texteReponse };
         }
 
-        return await resp.json();
+        if (!resp.ok) {
+            throw new Error(`HTTP ${resp.status} — ${texteReponse.slice(0, 180)}`);
+        }
+
+        const listeResultats = Array.isArray(data.resultats) ? data.resultats : [];
+        const nbAcceptes = listeResultats.filter((r) => r.statut === 'accepte').length;
+        const nbDoublons = listeResultats.filter((r) => r.statut === 'doublon').length;
+        const nbRejetes = listeResultats.filter((r) => r.statut === 'rejete').length;
+        log(`Lot (${lot.length}) traité : acceptés=${nbAcceptes}, doublons=${nbDoublons}, rejetés=${nbRejetes}`);
+
+        return data;
     }
 
     async function synchroniserFile() {
+        if (syncEnCours) {
+            return;
+        }
+
         interrompu = false;
-        const file = lireFile();
-        if (file.length === 0) {
+        const fileInitiale = lireFile();
+        if (fileInitiale.length === 0) {
             log('Aucun scan en attente.');
             return;
         }
         if (!reseauActif) {
-            log('Réseau coupé : synchronisation impossible pour le moment.');
+            ecrireFile(fileInitiale);
+            log(`Réseau coupé : ${fileInitiale.length} scan(s) conservés en file.`);
             return;
         }
 
-        log(`Synchronisation de ${file.length} scan(s)...`);
-        const restants = [...file];
+        syncEnCours = true;
+        log(`Synchronisation de ${fileInitiale.length} scan(s)...`);
 
-        while (restants.length > 0) {
-            if (interrompu) {
-                ecrireFile(restants);
-                log(`Synchronisation interrompue (${restants.length} scan(s) conservés en file).`);
-                return;
-            }
+        try {
+            while (true) {
+                const fileCourante = lireFile();
+                if (fileCourante.length === 0) {
+                    log('Synchronisation terminée sans perte ni doublon.');
+                    return;
+                }
 
-            const batch = restants.splice(0, 3);
-            try {
-                await envoyerLot(batch);
-                ecrireFile(restants);
-            } catch (err) {
-                restants.unshift(...batch);
-                ecrireFile(restants);
-                log(`Erreur de synchronisation : ${err.message}`);
-                return;
-            }
+                if (!reseauActif) {
+                    ecrireFile(fileCourante);
+                    log(`Réseau coupé en cours de sync (${fileCourante.length} scan(s) conservés en file).`);
+                    return;
+                }
 
-            if (restants.length > 0) {
-                await pause(350);
+                if (interrompu) {
+                    ecrireFile(fileCourante);
+                    log(`Synchronisation interrompue (${fileCourante.length} scan(s) conservés en file).`);
+                    return;
+                }
+
+                const batch = fileCourante.slice(0, 3);
+                try {
+                    await envoyerLot(batch);
+                    const restants = lireFile().slice(batch.length);
+                    ecrireFile(restants);
+                } catch (err) {
+                    ecrireFile(lireFile());
+                    log(`Envoi mis en pause (${lireFile().length} scan(s) en file) : ${err.message}`);
+                    return;
+                }
+
+                if (lireFile().length > 0 && reseauActif && !interrompu) {
+                    await pause(350);
+                }
             }
+        } finally {
+            syncEnCours = false;
         }
-
-        log('Synchronisation terminée sans perte ni doublon.');
     }
+
+    document.getElementById('btn-effacer-jeton').addEventListener('click', () => {
+        inputJeton.value = '';
+        inputJeton.focus();
+    });
 
     document.getElementById('btn-toggle-reseau').addEventListener('click', async () => {
         reseauActif = !reseauActif;
         majReseau();
-        log(reseauActif ? 'Réseau rétabli.' : 'Réseau coupé.');
-        if (reseauActif && lireFile().length > 0) {
+
+        if (!reseauActif) {
+            interrompu = true;
+            ecrireFile(lireFile());
+            log(`Réseau coupé (${lireFile().length} scan(s) en file).`);
+            return;
+        }
+
+        interrompu = false;
+        log(`Réseau rétabli (${lireFile().length} scan(s) en file).`);
+        if (lireFile().length > 0) {
             await synchroniserFile();
         }
     });
 
-    document.getElementById('btn-scanner').addEventListener('click', async () => {
-        const evt = construireEvenement();
+    btnScanner.addEventListener('click', async () => {
+        if (envoiEnCours) {
+            return;
+        }
+
+        const evt = construireEvenement(0);
         if (!evt.jeton) {
-            messageScan.textContent = 'Veuillez saisir un jeton de badge.';
+            messageScan.textContent = 'Veuillez saisir ou coller un jeton de badge.';
             return;
         }
 
-        const file = lireFile();
-        file.push(evt);
-        ecrireFile(file);
-        messageScan.textContent = `Scan mis en file (${evt.client_event_id.slice(0, 8)}).`;
+        envoiEnCours = true;
+        btnScanner.disabled = true;
+        btnSimuler20.disabled = true;
 
-        if (reseauActif) {
-            await synchroniserFile();
+        try {
+            const file = lireFile();
+            file.push(evt);
+            ecrireFile(file);
+            messageScan.textContent = `1 scan mis en file (${evt.client_event_id.slice(0, 8)}).`;
+
+            if (reseauActif) {
+                await synchroniserFile();
+            }
+        } finally {
+            envoiEnCours = false;
+            btnScanner.disabled = false;
+            btnSimuler20.disabled = false;
         }
     });
 
-    document.getElementById('btn-simuler-20').addEventListener('click', async () => {
-        const jeton = document.getElementById('jeton').value.trim();
-        if (!jeton) {
-            messageScan.textContent = 'Veuillez saisir un jeton de badge.';
+    btnSimuler20.addEventListener('click', async () => {
+        if (envoiEnCours) {
             return;
         }
-        const file = lireFile();
-        for (let i = 0; i < 20; i++) {
-            file.push({
-                ...construireEvenement(),
-                client_event_id: uuid(),
-                local_event_id: uuid(),
-            });
+
+        const jeton = inputJeton.value.trim();
+        if (!jeton) {
+            messageScan.textContent = 'Veuillez saisir ou coller un jeton de badge.';
+            return;
         }
-        ecrireFile(file);
-        messageScan.textContent = '20 scans ajoutés à la file locale.';
-        if (reseauActif) {
-            await synchroniserFile();
+
+        envoiEnCours = true;
+        btnScanner.disabled = true;
+        btnSimuler20.disabled = true;
+
+        try {
+            const file = lireFile();
+            for (let i = 0; i < 20; i++) {
+                file.push(construireEvenement(i));
+            }
+            ecrireFile(file);
+            messageScan.textContent = '20 scans ajoutés à la file locale.';
+            if (reseauActif) {
+                await synchroniserFile();
+            }
+        } finally {
+            envoiEnCours = false;
+            btnScanner.disabled = false;
+            btnSimuler20.disabled = false;
         }
     });
 
     document.getElementById('btn-sync').addEventListener('click', synchroniserFile);
     document.getElementById('btn-interrompre').addEventListener('click', () => {
         interrompu = true;
+        ecrireFile(lireFile());
     });
     document.getElementById('btn-vider-file').addEventListener('click', () => {
         ecrireFile([]);

@@ -50,3 +50,6 @@
 ## Décision 10. Réémission transactionnelle de badge et alignement de la synchronisation web
 - **Décision :** La réémission d'un badge pour un élève (`BadgeService::emettrePourEleve`) révoque les badges actifs précédents et crée un nouveau badge dans une transaction `DB::transaction` (avec import explicite de `Illuminate\Support\Facades\DB`).
 - **Synchronisation :** L'endpoint `/api/passages/sync` valide le tableau `evenements`, vérifie l'idempotence via `client_event_id`, déclenche l'analyse d'anomalies après création du passage et s'appuie sur une file locale persistée côté agent avec interruption et reprise sans doublon.
+
+## Decision 11. Lecture fidèle des résultats de synchronisation et verrouillage du scan unitaire
+- **Décision :** L'interface `/scan` compte les statuts retournés dans `data.resultats` (`accepte`, `doublon`, `rejete`) plutôt que des clés absentes, verrouille le bouton de scan unitaire contre le double clic, et permet de vider ou coller librement le jeton d'un badge ou de lancer une simulation de 20 scans.

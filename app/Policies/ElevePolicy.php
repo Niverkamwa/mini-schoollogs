@@ -9,12 +9,12 @@ class ElevePolicy
 {
     public function viewAny(User $user): bool
     {
-        return in_array($user->role, ['responsable', 'agent', 'parent'], true);
+        return $user->role === 'responsable';
     }
 
     public function view(User $user, Eleve $eleve): bool
     {
-        if (in_array($user->role, ['responsable', 'agent'], true)) {
+        if ($user->role === 'responsable') {
             return true;
         }
 

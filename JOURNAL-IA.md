@@ -27,3 +27,7 @@
 - **Modèles & contrôleurs :** Corrigé `Anomalie` (`HasMany`), `Eleve` (`anomalies()`, `passages()`), `PortailController` (`fenetre.pointControle`) et adapté `CloisonnementRolesTest` à la redirection de l'agent vers `/scan` (16 tests, 59 assertions au vert).
 - **Réémission de badge (`BadgeService.php`) :** Corrigé l'erreur `500` liée à l'import manquant de `DB` et ajouté `emettrePourEleve(Eleve $eleve)` sous transaction.
 - **Décision humaine / arbitrage :** Refus de l'ajout d'un poste de scan dans l'interface du responsable afin de maintenir la séparation stricte des rôles.
+
+## Session — Fiche élève, notifications parent et correction du suivi de synchronisation des 20 scans
+- **Portail parent & élève :** Ajouté `portail.eleve`, branché les notifications reçues dans `PortailController::tableauDeBord()`, `layouts/app.blade.php` et `portail/parent.blade.php`, et renforcé `ElevePolicy`.
+- **Écran `/scan` :** Corrigé le comptage sur `data.resultats` pour refléter les scans acceptés/doublons/rejetés lors de la simulation de 20 scans, ajouté le bouton de vidage du champ jeton et sécurisé le clic sur « Enregistrer le scan ».

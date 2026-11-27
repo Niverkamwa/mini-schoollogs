@@ -78,9 +78,13 @@
                                 Messages parents
                             </a>
                         @elseif($role === 'parent')
-                            <a href="{{ route('tableau-de-bord') }}"
+                            <a href="{{ route('tableau-de-bord') }}#section-enfants"
                                class="block px-3 py-2 rounded-lg {{ request()->routeIs('tableau-de-bord') ? 'bg-emerald-600 text-white font-medium' : 'text-slate-300 hover:bg-slate-800 hover:text-white' }}">
                                 Mes enfants
+                            </a>
+                            <a href="{{ route('tableau-de-bord') }}#section-notifications"
+                               class="block px-3 py-2 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white">
+                                Notifications reçues
                             </a>
                         @endif
                     </nav>

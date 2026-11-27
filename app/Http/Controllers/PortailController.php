@@ -31,9 +31,16 @@ class PortailController extends Controller
                 ->orderBy('prenom')
                 ->get();
 
+            $notifications = MessageSortant::query()
+                ->where('parent_id', $user->id)
+                ->latest('id')
+                ->limit(30)
+                ->get();
+
             return view('portail.parent', [
                 'user' => $user,
                 'enfants' => $enfants,
+                'notifications' => $notifications,
             ]);
         }
 
