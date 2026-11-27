@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Eleve extends Model
@@ -29,5 +30,15 @@ class Eleve extends Model
     public function badgeActif(): HasOne
     {
         return $this->hasOne(Badge::class)->where('etat', 'actif');
+    }
+
+    public function passages(): HasMany
+    {
+        return $this->hasMany(Passage::class);
+    }
+
+    public function anomalies(): HasMany
+    {
+        return $this->hasMany(Anomalie::class);
     }
 }

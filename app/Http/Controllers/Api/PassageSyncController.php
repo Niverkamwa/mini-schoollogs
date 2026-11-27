@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Passage;
+use App\Services\AnomalieDetectionService;
 use App\Services\BadgeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -13,7 +14,8 @@ use Illuminate\Support\Facades\DB;
 class PassageSyncController extends Controller
 {
     public function __construct(
-        private readonly BadgeService $badgeService
+        private readonly BadgeService $badgeService,
+        private readonly AnomalieDetectionService $anomalieDetectionService
     ) {}
 
     public function sync(Request $request): JsonResponse
@@ -67,7 +69,7 @@ class PassageSyncController extends Controller
                     return $dejaCree;
                 }
 
-                $tz = config('app.timezone');
+                $tz = config('app.timezone', 'Africa/Douala');
                 $heureLocale = $horodatageAppareil->copy()->timezone($tz);
                 $heureServeur = $serveurMaintenant->copy()->timezone($tz);
 
@@ -86,12 +88,14 @@ class PassageSyncController extends Controller
                     'heure_locale' => $heureLocale,
                     'heure_corrigee' => $heureLocale,
                     'heure_serveur' => $heureServeur,
-                    'heure_retenue' => $heureServeur,
+                    'heure_retenue' => $serveurMaintenant,
                     'horodatage_appareil' => $horodatageAppareil,
                     'horodatage_serveur' => $serveurMaintenant,
                     'source_sync' => 'pwa_sync',
                 ]);
             });
+
+            $this->anomalieDetectionService->analyserPassage($passage);
 
             $resultats[] = [
                 'client_event_id' => $eventId,

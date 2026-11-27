@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Anomalie extends Model
 {
@@ -13,17 +14,19 @@ class Anomalie extends Model
     {
         return $this->belongsTo(Eleve::class);
     }
-        public function fenetre(): BelongsTo
+
+    public function fenetre(): BelongsTo
     {
         return $this->belongsTo(Fenetre::class);
     }
 
-        public function passage(): BelongsTo
-        {
-            return $this->belongsTo(Passage::class);
-        }
-        public function messagesSortants(): HasMany
-        {
-            return $this->hasMany(MessageSortant::class, 'anomalie_id');
-        }
+    public function passage(): BelongsTo
+    {
+        return $this->belongsTo(Passage::class);
+    }
+
+    public function messagesSortants(): HasMany
+    {
+        return $this->hasMany(MessageSortant::class, 'anomalie_id');
+    }
 }

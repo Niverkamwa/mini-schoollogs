@@ -39,3 +39,14 @@
 - **Choix retenu :** isoler l'envoi derrière `NotificateurParentInterface` (`SimulateurNotificateurParent` par défaut), composer un message neutre sans donnée sensible pour chaque parent lié à l'élève, respecter l'unicité `(anomalie_id, parent_id)` et appliquer un plafond journalier configurable par élève (`non_envoye_plafond` avec `motif_non_envoi` explicite au-delà).
 - **Alternatives écartées :** appeler directement un fournisseur externe dans le service d'anomalies ou envoyer un message par anomalie sans limite journalière ni contrôle de doublon.
 - **Raison :** faciliter le branchement d'un fournisseur SMS réel sans toucher au domaine, éviter la saturation des parents en cas d'incidents répétés et garder la traçabilité complète en base (`messages_sortants`).
+
+## Décision 9. Isolation stricte de l'écran de connexion et sidebars dédiées par rôle
+- **Décision :** La page `/connexion` s'affiche de manière isolée (sans barre de navigation ni liens d'interface). Après authentification, chaque rôle dispose d'une sidebar dédiée uniquement à ses fonctionnalités autorisées :
+  - **Agent de portail :** accès au poste de scan hors ligne et à la synchronisation (`/scan`), sans accès aux anomalies, aux parents ni aux statistiques.
+  - **Responsable :** accès au pilotage général, aux élèves & badges, aux passages récents, aux anomalies et aux messages sortants parents (`/tableau-de-bord`).
+  - **Parent :** accès uniquement à la liste de ses enfants rattachés et à leurs fiches autorisées.
+- **Refus d'ajout d'un poste de scan pour le responsable :** L'ajout d'un accès au poste de scan dans l'espace du responsable a été explicitement refusé afin de préserver la séparation stricte des responsabilités entre l'agent de portail et le responsable.
+
+## Décision 10. Réémission transactionnelle de badge et alignement de la synchronisation web
+- **Décision :** La réémission d'un badge pour un élève (`BadgeService::emettrePourEleve`) révoque les badges actifs précédents et crée un nouveau badge dans une transaction `DB::transaction` (avec import explicite de `Illuminate\Support\Facades\DB`).
+- **Synchronisation :** L'endpoint `/api/passages/sync` valide le tableau `evenements`, vérifie l'idempotence via `client_event_id`, déclenche l'analyse d'anomalies après création du passage et s'appuie sur une file locale persistée côté agent avec interruption et reprise sans doublon.

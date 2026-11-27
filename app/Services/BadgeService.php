@@ -3,8 +3,10 @@
 namespace App\Services;
 
 use App\Models\Badge;
+use App\Models\Eleve;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class BadgeService
@@ -82,14 +84,47 @@ class BadgeService
 
     public function renouvelerBadge(Badge $badge): Badge
     {
-        $badge->update(['etat' => 'revoque']);
+        return DB::transaction(function () use ($badge) {
+            $badge->update(['etat' => 'revoque']);
 
-        return Badge::create([
-            'eleve_id' => $badge->eleve_id,
-            'public_id' => Str::lower(Str::random(16)),
-            'secret' => bin2hex(random_bytes(32)),
-            'etat' => 'actif',
-            'date_emission' => now(),
-        ]);
+            return Badge::create([
+                'eleve_id' => $badge->eleve_id,
+                'public_id' => Str::lower(Str::random(16)),
+                'secret' => bin2hex(random_bytes(32)),
+                'etat' => 'actif',
+                'date_emission' => now(),
+            ]);
+        });
+    }
+
+    public function emettrePourEleve(Eleve $eleve): Badge
+    {
+        return DB::transaction(function () use ($eleve) {
+            $badgesActifs = Badge::where('eleve_id', $eleve->id)
+                ->where('etat', 'actif')
+                ->get();
+
+            foreach ($badgesActifs as $badgeActif) {
+                $badgeActif->update(['etat' => 'revoque']);
+            }
+
+            $dernierBadge = Badge::where('eleve_id', $eleve->id)
+                ->latest('id')
+                ->first();
+
+            $attributs = [
+                'eleve_id' => $eleve->id,
+                'public_id' => Str::lower(Str::random(16)),
+                'secret' => bin2hex(random_bytes(32)),
+                'etat' => 'actif',
+                'date_emission' => now(),
+            ];
+
+            if ($dernierBadge && $dernierBadge->getConnection()->getSchemaBuilder()->hasColumn('badges', 'badge_remplace_id')) {
+                $attributs['badge_remplace_id'] = $dernierBadge->id;
+            }
+
+            return Badge::create($attributs);
+        });
     }
 }
