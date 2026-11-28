@@ -9,6 +9,7 @@ use App\Models\MessageSortant;
 use App\Models\Passage;
 use App\Services\AnomalieDetectionService;
 use App\Services\BadgeService;
+use App\Services\SyntheseIaService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -16,8 +17,11 @@ use Illuminate\View\View;
 
 class PortailController extends Controller
 {
-    public function tableauDeBord(Request $request, BadgeService $badgeService): View|RedirectResponse
-    {
+    public function tableauDeBord(
+        Request $request,
+        BadgeService $badgeService,
+        SyntheseIaService $syntheseIaService
+    ): View|RedirectResponse {
         $user = $request->user();
 
         if ($user->role === 'agent') {
@@ -62,8 +66,7 @@ class PortailController extends Controller
 
         $passages = Passage::query()
             ->with(['eleve', 'pointControle', 'badge'])
-            ->latest('heure_retenue')
-            ->latest('id')
+            ->orderByDesc('id')
             ->limit(30)
             ->get();
 
@@ -84,6 +87,8 @@ class PortailController extends Controller
             ->limit(30)
             ->get();
 
+        $synthese = $syntheseIaService->genererSynthese();
+
         return view('portail.responsable', [
             'user' => $user,
             'eleves' => $eleves,
@@ -92,6 +97,7 @@ class PortailController extends Controller
             'anomalies' => $anomalies,
             'messages' => $messages,
             'typeFiltre' => $typeFiltre,
+            'synthese' => $synthese,
         ]);
     }
 

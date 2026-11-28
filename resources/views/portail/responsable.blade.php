@@ -18,6 +18,19 @@
         </form>
     </div>
 
+    {{-- Synthèse encadrée (IA avec repli déterministe) --}}
+    @if(isset($synthese))
+        <div class="bg-white rounded-xl shadow p-5 border border-slate-200 space-y-2">
+            <div class="flex items-center justify-between gap-2 flex-wrap">
+                <h2 class="font-semibold text-base">Synthèse journalière encadrée</h2>
+                <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold {{ ($synthese['source'] ?? 'deterministe') === 'ia' ? 'bg-indigo-100 text-indigo-800' : 'bg-slate-200 text-slate-800' }}">
+                    Mode : {{ ($synthese['source'] ?? 'deterministe') === 'ia' ? 'IA encadrée' : 'Repli déterministe' }}
+                </span>
+            </div>
+            <p class="text-sm text-slate-700 leading-relaxed">{{ $synthese['texte'] }}</p>
+        </div>
+    @endif
+
     {{-- Élèves et badges --}}
     <div id="section-badges" class="bg-white rounded-xl shadow p-5 border border-slate-200 scroll-mt-6">
         <h2 class="font-semibold text-base mb-3">Élèves &amp; Badges tournants</h2>

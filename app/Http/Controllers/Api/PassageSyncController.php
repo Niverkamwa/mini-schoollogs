@@ -13,6 +13,8 @@ use Illuminate\Support\Facades\DB;
 
 class PassageSyncController extends Controller
 {
+    private const SEUIL_DECALAGE_MINUTES = 30;
+
     public function __construct(
         private readonly BadgeService $badgeService,
         private readonly AnomalieDetectionService $anomalieDetectionService
@@ -62,8 +64,17 @@ class PassageSyncController extends Controller
 
             $badge = $verification['badge'];
             $horodatageAppareil = Carbon::parse($evt['horodatage_appareil'])->utc();
+            $ecartMinutes = abs($serveurMaintenant->diffInMinutes($horodatageAppareil, false));
+            $horlogeDecalee = $ecartMinutes >= self::SEUIL_DECALAGE_MINUTES;
 
-            $passage = DB::transaction(function () use ($eventId, $badge, $evt, $horodatageAppareil, $serveurMaintenant) {
+            $passage = DB::transaction(function () use (
+                $eventId,
+                $badge,
+                $evt,
+                $horodatageAppareil,
+                $serveurMaintenant,
+                $horlogeDecalee
+            ) {
                 $dejaCree = Passage::where('client_event_id', $eventId)->first();
                 if ($dejaCree) {
                     return $dejaCree;
@@ -83,10 +94,10 @@ class PassageSyncController extends Controller
                     'code_brut' => $evt['jeton'],
                     'resultat_controle' => 'valide',
                     'etat_synchronisation' => 'synchronise',
-                    'horloge_decalee' => false,
-                    'heure_incoherente' => false,
+                    'horloge_decalee' => $horlogeDecalee,
+                    'heure_incoherente' => $horlogeDecalee,
                     'heure_locale' => $heureLocale,
-                    'heure_corrigee' => $heureLocale,
+                    'heure_corrigee' => $heureServeur,
                     'heure_serveur' => $heureServeur,
                     'heure_retenue' => $serveurMaintenant,
                     'horodatage_appareil' => $horodatageAppareil,
@@ -101,6 +112,7 @@ class PassageSyncController extends Controller
                 'client_event_id' => $eventId,
                 'statut' => 'accepte',
                 'passage_id' => $passage->id,
+                'horloge_decalee' => $horlogeDecalee,
             ];
         }
 

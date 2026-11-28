@@ -1,66 +1,82 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# mini-schoollogs — Module « Passage » (Test Technique Afric'Éduc)
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Prototype du module **Passage** pour **SchoolLogs** , permettant le suivi des passages d'élèves aux points de contrôle en conditions de réseau dégradé, la détection d'anomalies, la notification des parents et une synthèse journalière encadrée[cite: 1].
 
-## About Laravel
+---
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## 1. Présentation du projet
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+Le module *Passage* répond à une contrainte opérationnelle précise : au portail ou lors de la montée en autobus, la connexion réseau peut être instable, l'horloge d'un appareil peut être décalée, et un badge ne doit pas pouvoir être réutilisé impunément par un tiers qui l'a photographié ou capturé.
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+L'application implémente :
+- Un poste de scan (`/scan`) fonctionnant hors ligne via `localStorage` avec synchronisation par lots idempotente (`POST /api/passages/sync`).
+- Un mécanisme de badges tournants signés par HMAC avec fenêtre de validité (`slot`) et tolérance de pas.
+- Un cloisonnement strict par rôle (`agent`, `responsable`, `parent`) et par périmètre d'accès (`ElevePolicy`, vérifications serveur, refus `403`).
+- La détection d'anomalies et la journalisation de messages sortants vers les parents (avec plafond quotidien).
+- Une synthèse journalière encadrée reposant sur des métriques calculées côté serveur avec repli déterministe sans clé API.
 
-## Learning Laravel
+---
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+## 2. Technologies utilisées et justification
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+- **PHP 8+ & Laravel 12** : framework web structuré offrant nativement le routage, les middlewares d'authentification et de limitation de débit, l'ORM Eloquent (requêtes paramétrées), les *Policies*, les migrations rejouables, les *seeders* et PHPUnit/Laravel Test pour les tests automatisés.
+- **SQLite** : base de données locale légère, zéro configuration externe, recréable à tout moment via `php artisan migrate:fresh --seed`, adaptée à l'exécution locale et aux tests en environnement contraint.
+- **Blade & Tailwind CSS (CDN)** : rendu serveur simple et lisible sur ordinateur comme sur mobile, sans complexité front-end superflue, tout en préservant l'échappement automatique (`{{ ... }}`) contre les injections XSS[cite: 1].
+- **JavaScript natif + `localStorage` sur `/scan`** : gestion légère de la file d'attente hors ligne, simulation de coupure/rétablissement réseau, interruption/reprise de synchronisation et simulation de lots (20 scans) sans dépendance lourde.
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+---
 
-## Laravel Sponsors
+## 3. Ce qui a réellement été fait
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+- **Authentification & sécurité de session** : connexion par identifiant (`/connexion`), hachage de mot de passe (longueur minimale 8 caractères), limitation des tentatives (6e tentative limitée), message d'erreur uniforme, déconnexion invalidant la session et page `/connexion` isolée.
+- **Cloisonnement des rôles et des données** : `agent` redirigé vers `/scan` et bloqué (`403`) sur `/eleves/{eleve}` ; `responsable` accédant au pilotage ; `parent` limité strictement à ses propres enfants (`403` si accès direct à l'URL d'un autre élève) et consultant ses notifications reçues.
+- **Badges tournants & cycle de vie** : génération et vérification de jetons signés HMAC (`v1.<public_id>.<slot>.<signature>`) avec pas temporel et tolérance de pas (`$tolerancePas`), contrôle de l'état actif, suspension/réactivation et réémission transactionnelle invalidant l'ancien badge.
+- **Scan hors ligne & synchronisation idempotente** : mise en file locale (`localStorage`), coupure/rétablissement réseau, interruption/reprise, simulation de 20 scans, protection anti-double-clic, déduplication côté serveur sur `client_event_id` (`accepte`, `doublon`, `rejete`) et comptage fidèle sur `data.resultats`.
+- **Anomalies & notifications parents** : détection des anomalies (`hors_fenetre`, `passage_manquant`, `double_scan`, `point_hors_itineraire`, `badge_non_actif`, `hors_heures_etablissement`) et enregistrement de messages sortants neutres avec plafond journalier.
+- **Synthèse journalière encadrée (`SyntheseIaService`)** : calcul des métriques côté serveur et génération d'une synthèse avec repli déterministe lorsque aucune clé API n'est fournie.
+- **Tests automatisés** : suite de tests feature/unit passant au vert (`18 passed`).
 
-### Premium Partners
+---
 
-- **[Vehikl](https://vehikl.com/)**
-- **[Tighten Co.](https://tighten.co)**
-- **[WebReinvent](https://webreinvent.com/)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel/)**
-- **[Cyber-Duck](https://cyber-duck.co.uk)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Jump24](https://jump24.co.uk)**
-- **[Redberry](https://redberry.international/laravel/)**
-- **[Active Logic](https://activelogic.com)**
-- **[byte5](https://byte5.de)**
-- **[OP.GG](https://op.gg)**
+## 4. Limites actuelles et ce qui n'a pas pu être terminé / approfondi
 
-## Contributing
+Conformément à l'avertissement de l'énoncé sur le périmètre et l'arbitrage sous contrainte, les points suivants présentent des limites ou restent partiels[cite: 1, 2, 6] :
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+- **Absence de badge physique et de test matériel de photographie** : il n'y a pas de carte/QR physique imprimé ni de second appareil mobile dédié pour photographier un badge à l'écran et le présenter physiquement devant une caméra[cite: 4]. L'usurpation / rejeu est testée de manière logicielle via la réutilisation d'un jeton expiré, d'un badge suspendu ou révoqué, et les tests automatisés.
+- **Badges réduits à des jetons textuels** : dans l'interface actuelle, le badge est représenté par une chaîne de jeton tournant (`v1.<public_id>.<slot>.<signature>`) copiée/collée ou préremplie dans un champ texte, plutôt que par un rendu visuel dédié (QR/code-barres) ou un support matériel.
+- **Synthèse IA minimaliste** : la brique de synthèse repose actuellement sur une collecte de métriques et un repli déterministe fonctionnel sans clé API ; l'intégration complète d'un fournisseur LLM externe avec suivi de coût journalier plafonné, journalisation dédiée de chaque appel et nouvelle tentative unique sur schéma strict reste minimaliste/à consolider.
+- **Déclenchement automatique planifié sans intervention humaine** : la détection des passages manquants est exposée via le service et l'action responsable (`verifierPassagesManquants`), mais l'automatisation périodique en tâche de fond (cron/scheduler OS tournant en continu sans ouverture préalable de l'application) n'est pas encore branchée en continu.
 
-## Code of Conduct
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
 
-## Security Vulnerabilities
+---
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+## 5. Sécurité
 
-## License
+- **Mots de passe** : hachés via `Hash::make()` (`bcrypt`/`argon2`) avec validation d'une longueur minimale de 8 caractères.
+- **Protection contre la force brute et énumération** : limitation du nombre de tentatives de connexion (`RateLimiter`) et message d'erreur générique identique, que l'identifiant existe ou non.
+- **Session et déconnexion** : session Laravel à durée de vie configurée, régénérée à la connexion et invalidée (`invalidate()` + régénération du jeton CSRF) à la déconnexion.
+- **Contrôle des rôles côté serveur** : toutes les routes et actions sensibles vérifient le rôle/droits côté serveur (`PortailController`, `PassageSyncController`, `ElevePolicy`), jamais uniquement par masquage UI.
+- **Cloisonnement des données** : `PortailController::afficherEleve()` et `ElevePolicy::view()` vérifient l'appartenance de l'élève aux enfants du parent connecté et renvoient `403` en cas d'accès direct (`/eleves/{autre_id}`).
+- **Validation, requêtes et XSS** : validation stricte via `$request->validate()`, requêtes via Eloquent (paramétrées) et échappement Blade par défaut (`{{ ... }}`).
+- **Secrets** : aucune clé ni secret en dur dans le dépôt ; configuration via `.env` (avec `.env.example` sans secrets réels).
+- **Avec davantage de temps** : ajout d'une table/journal d'audit (`journal_audit`) systématique sur les consultations sensibles, révocation/rotation de clés HMAC avec période de grâce, tests de non-régression sécurité supplémentaires et durcissement des en-têtes HTTP.
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+---
+
+## 6. Mode dégradé et garde-fous IA
+
+- **Principe** : le modèle ne calcule jamais les chiffres (comptage des passages, anomalies, messages) ; toutes les métriques sont agrégées par le code PHP puis transmises pour mise en forme.
+- **Mode dégradé sans clé ou en cas d'erreur** : si `SERVICES_IA_KEY` / `SERVICES_IA_URL` est absent ou si l'appel échoue/expire, `SyntheseIaService` bascule automatiquement sur `construireTexteDeterministe()` qui produit une synthèse factuelle exacte à partir des chiffres en base, sans faire planter le tableau de bord.
+- **Évolution prévue** : validation stricte de la sortie JSON/texte avec au plus une nouvelle tentative avant repli déterministe, journalisation de chaque appel (`modèle`, `volume`, `coût estimé`, `origine`), mise en cache/anti-doublon pour éviter de refacturer deux requêtes identiques et plafond quotidien configurable.
+
+---
+
+## 7. Installation et lancement
+
+```bash
+composer install
+cp .env.example .env
+php artisan key:generate
+php artisan migrate:fresh --seed
+php artisan serve

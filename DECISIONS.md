@@ -3,53 +3,39 @@
 ## Décision 1 — Base de données SQLite
 - **Choix retenu :** SQLite (`database/database.sqlite`).
 - **Alternatives écartées :** PostgreSQL.
-- **Raison :** zéro installation serveur necessaire, exécution immédiate avec `php artisan migrate:fresh --seed` et compatibilité native avec `pdo_sqlite` dans GitHub Actions.
+- **Raison :** zéro installation serveur nécessaire, exécution immédiate avec `php artisan migrate:fresh --seed` et compatibilité native avec `pdo_sqlite` dans GitHub Actions[cite: 2, 4, 7].
 
 ## Décision 2 — Authentification par `identifiant` sur la table `users`
-- **Choix retenu :** conserver la table `users` avec une colonne `identifiant` unique, des mots de passe hachés, un `RateLimiter` (`connexion`) et l'invalidation complète de session à la déconnexion.
+- **Choix retenu :** conserver la table `users` avec une colonne `identifiant` unique, des mots de passe hachés (minimum 8 caractères), un `RateLimiter` (`connexion`) avec message d'erreur uniforme et l'invalidation complète de session à la déconnexion[cite: 2, 3, 7].
 - **Alternatives écartées :** créer une table séparée sans réutiliser le guard `web` standard de Laravel.
 - **Raison :** s'appuyer sur le mécanisme de session et de sécurité natif de Laravel tout en respectant les champs métier.
 
 ## Décision 3 — Cloisonnement des accès par rôle et Policies
-- **Choix retenu :** contrôler les accès côté serveur via `ElevePolicy` et `AnomaliePolicy`, filtrer les listes selon le rôle (`responsable`, `agent`, `parent`) et retourner `403` lorsqu'un parent tente d'accéder à un élève ou une anomalie qui ne lui est pas rattaché.
-- **Alternatives écartées :** masquer uniquement les liens ou boutons dans les vues Blade sans contrôle côté contrôleur/policy.
-- **Raison :** garantir l'étanchéité des données familiales même en cas d'appel direct à une URL.
+- **Choix retenu :** contrôler les accès côté serveur via `ElevePolicy` et `AnomaliePolicy`, filtrer les listes selon le rôle (`responsable`, `agent`, `parent`) et retourner `403` lorsqu'un parent tente d'accéder à un élève ou une anomalie qui ne lui est pas rattaché[cite: 2, 3, 5, 7].
+- **Alternatives écartées :** masquer uniquement les liens ou boutons dans les vues Blade sans contrôle côté contrôleur/policy[cite: 2, 3].
+- **Raison :** garantir l'étanchéité des données familiales même en cas d'appel direct à une URL[cite: 3, 5, 7].
 
-## Décision 4 — Badge tournant signé par HMAC-SHA256 et chiffrement au repos
-- **Choix retenu :** générer un jeton à fenêtre temporelle courte (pas de 60 secondes avec tolérance contrôlée) signé avec `hash_hmac('sha256', ...)` à partir du `secret` chiffré (`'encrypted'`) du badge, vérifié via `hash_equals()`, et révoquer l'ancien badge lors d'un renouvellement.
-- **Alternatives écartées :** utiliser un identifiant statique en clair dans le QR code / badge sans rotation ni signature.
-- **Raison :** limiter la rejouabilité d'un code capturé et gérer proprement le cycle de vie (`actif`, `suspendu`, `perdu`, `revoque`).
+## Décision 4 — Badge tournant signé par HMAC-SHA256 et contrainte agent
+- **Choix retenu :** générer un jeton à fenêtre temporelle courte (pas de 60 secondes avec tolérance contrôlée) signé avec `hash_hmac('sha256', ...)` à partir du `secret` chiffré (`'encrypted'`) du badge, vérifié via `hash_equals()`, et révoquer l'ancien badge lors d'un renouvellement[cite: 4, 6, 7].
+- **Alternatives écartées :** utiliser un identifiant statique en clair dans le QR code / badge sans rotation ni signature[cite: 4, 6, 9].
+- **Raison et contrainte agent :** un jeton photographié ou capturé devient rapidement caduc hors de sa fenêtre de validité, et la révocation/suspension bloque immédiatement le badge[cite: 4, 6, 8]. Cela impose à l'agent de portail de scanner/transmettre le jeton au moment du passage (une capture ancienne rejouée plus tard est rejetée). *Limite assumée :* le prototype manipule des jetons textuels à l'écran sans badge physique imprimé ni test matériel avec caméra[cite: 4, 6, 7].
 
-## Décision 5 — Synchronisation hors-ligne idempotente et alignement du schéma `passages`
-- **Choix retenu :** dédupliquer chaque scan via `client_event_id` (et `local_event_id`) dans `PassageSyncController::sync()` avec double contrôle avant et dans une transaction `DB::transaction()`, rendre `appareil_id` nullable sur `passages`, et enregistrer systématiquement les horodatages au format `datetime` (`heure_locale`, `heure_corrigee`, `heure_serveur`, `heure_retenue`, `horodatage_appareil`, `horodatage_serveur`) avec `resultat_controle = 'valide'` et `etat_synchronisation = 'synchronise'`.
-- **Alternatives écartées :** insérer directement chaque événement reçu sans clé d'idempotence client ou exiger un `appareil_id` non nul bloquant les terminaux mobiles non enregistrés.
-- **Raison :** éviter tout doublon en base lors d'une coupure réseau, d'un redémarrage du terminal ou d'un rejeu de lot, tout en conservant la trace des heures appareil et serveur pour la détection d'anomalies (`horloge_decalee`).
+## Décision 5 — Synchronisation hors-ligne idempotente et traitement d'une horloge fausse
+- **Choix retenu :** dédupliquer chaque scan via `client_event_id` (et `local_event_id`) dans `PassageSyncController::sync()` avec double contrôle avant et dans une transaction `DB::transaction()`, rendre `appareil_id` nullable sur `passages`, et enregistrer les horodatages appareil et serveur[cite: 6, 7, 8]. Lorsqu'un appareil présente une horloge manifestement fausse (écart dépassant le seuil défini), **le passage n'est pas rejeté : il est signalé (`horloge_decalee`) et l'horodatage serveur fait foi (`heure_retenue`)**[cite: 6, 8].
+- **Alternatives écartées :** insérer directement sans clé d'idempotence client, rejeter en bloc tout scan dont l'heure locale est fausse, ou écraser l'heure sans conserver la trace de l'écart[cite: 6, 8].
+- **Raison :** éviter tout doublon ou perte lors des coupures réseau et interruptions/reprises de lots, tout en empêchant une horloge d'appareil déréglée de corrompre la chronologie retenue côté serveur[cite: 6, 8].
 
-## Décision 6 — Détection déterministe des anomalies sur fenêtres horaires et passages
-- **Choix retenu :** centraliser l'évaluation des écarts dans `AnomalieDetectionService` en s'appuyant sur `Itineraire` et `Fenetre` (`jours_application`, `heure_debut`, `heure_fin`, `point_controle_id`, `sens`), sur la prise en compte de `exceptions_jour` (`ferie`, `absence_justifiee`), sur le seuil de double scan (60 s) et sur la déduplication idempotente des anomalies ouvertes par `(type, eleve_id, date_locale, fenetre_id/passage_id)`.
-- **Alternatives écartées :** laisser la logique de retard, d'absence ou de doublon éparpillée dans les contrôleurs ou les vues Blade.
-- **Raison :** produire des anomalies cohérentes et reproductibles quel que soit le point d'entrée (synchronisation en lot via `PassageSyncController` ou contrôle planifié/manuel via `anomalies:verifier`), tout en respectant les contraintes d'unicité de la table `anomalies`.
+## Décision 6 — Détection des anomalies, déclenchement automatique et cinquième anomalie
+- **Choix retenu :** centraliser l'évaluation dans `AnomalieDetectionService` (`passage_manquant`, `hors_fenetre`, `point_hors_itineraire`, `double_scan`, `badge_non_actif`) en tenant compte des `exceptions_jour` (`ferie`, `absence_justifiee`), prévoir le déclenchement périodique de la vérification des passages manquants via la commande planifiée (`anomalies:verifier` / scheduler) sans intervention manuelle dans l'UI, et ajouter la cinquième anomalie **`hors_heures_etablissement`**[cite: 6, 7, 8].
+- **Alternatives écartées :** laisser la logique éparpillée dans les contrôleurs/vues ou ne pas distinguer les passages hors plage d'ouverture de l'établissement[cite: 2, 6, 8].
+- **Raison :** `hors_heures_etablissement` permet de signaler spécifiquement un scan effectué en dehors des horaires normaux d'ouverture/activité de l'établissement (ex. en pleine nuit ou hors plage prévue), distinct d'un simple écart de fenêtre d'itinéraire[cite: 6, 8]. *Limite assumée :* en environnement local de démonstration, la vérification des passages manquants peut aussi être déclenchée à la demande et le scheduler continu n'est pas démarré en tâche de fond par défaut[cite: 6, 7, 8].
 
-## Décision 7 — Cinquième anomalie : `hors_heures_etablissement`
-- **Choix retenu :** ajouter le type d'anomalie `hors_heures_etablissement` lorsqu'un badge est scanné en dehors de la plage normale d'activité de l'établissement (en dehors de 06h00–20h00 ou un dimanche sans activité prévue).
-- **Alternatives écartées :** détecter un décalage d'horloge uniquement via une anomalie dédiée ou ne lever qu'une alerte générique `hors_fenetre` même pour un passage nocturne isolé.
-- **Raison :** distinguer un simple retard ou une sortie anticipée en journée scolaire d'un événement inhabituel en pleine nuit ou hors ouverture de l'établissement, qui mérite une vigilance particulière du responsable et du parent.
+## Décision 7 — Notifications parents découplées, neutres et plafonnées par jour
+- **Choix retenu :** isoler l'envoi derrière `NotificateurParentInterface` (`SimulateurNotificateurParent` par défaut), composer un message neutre sans donnée sensible pour chaque parent lié à l'élève, respecter l'unicité `(anomalie_id, parent_id)` et appliquer un plafond journalier configurable par élève (`non_envoye_plafond` avec `motif_non_envoi` explicite au-delà)[cite: 6, 7].
+- **Alternatives écartées :** appeler directement un fournisseur externe dans le service d'anomalies ou envoyer un message par anomalie sans limite journalière ni contrôle de doublon[cite: 6].
+- **Raison :** faciliter le branchement d'un fournisseur SMS réel sans toucher au domaine, éviter la saturation des parents en cas d'incidents répétés et garder la traçabilité complète en base (`messages_sortants`)[cite: 6, 7].
 
-## Décision 8 — Notifications parents découplées, neutres et plafonnées par jour
-- **Choix retenu :** isoler l'envoi derrière `NotificateurParentInterface` (`SimulateurNotificateurParent` par défaut), composer un message neutre sans donnée sensible pour chaque parent lié à l'élève, respecter l'unicité `(anomalie_id, parent_id)` et appliquer un plafond journalier configurable par élève (`non_envoye_plafond` avec `motif_non_envoi` explicite au-delà).
-- **Alternatives écartées :** appeler directement un fournisseur externe dans le service d'anomalies ou envoyer un message par anomalie sans limite journalière ni contrôle de doublon.
-- **Raison :** faciliter le branchement d'un fournisseur SMS réel sans toucher au domaine, éviter la saturation des parents en cas d'incidents répétés et garder la traçabilité complète en base (`messages_sortants`).
-
-## Décision 9. Isolation stricte de l'écran de connexion et sidebars dédiées par rôle
-- **Décision :** La page `/connexion` s'affiche de manière isolée (sans barre de navigation ni liens d'interface). Après authentification, chaque rôle dispose d'une sidebar dédiée uniquement à ses fonctionnalités autorisées :
-  - **Agent de portail :** accès au poste de scan hors ligne et à la synchronisation (`/scan`), sans accès aux anomalies, aux parents ni aux statistiques.
-  - **Responsable :** accès au pilotage général, aux élèves & badges, aux passages récents, aux anomalies et aux messages sortants parents (`/tableau-de-bord`).
-  - **Parent :** accès uniquement à la liste de ses enfants rattachés et à leurs fiches autorisées.
-- **Refus d'ajout d'un poste de scan pour le responsable :** L'ajout d'un accès au poste de scan dans l'espace du responsable a été explicitement refusé afin de préserver la séparation stricte des responsabilités entre l'agent de portail et le responsable.
-
-## Décision 10. Réémission transactionnelle de badge et alignement de la synchronisation web
-- **Décision :** La réémission d'un badge pour un élève (`BadgeService::emettrePourEleve`) révoque les badges actifs précédents et crée un nouveau badge dans une transaction `DB::transaction` (avec import explicite de `Illuminate\Support\Facades\DB`).
-- **Synchronisation :** L'endpoint `/api/passages/sync` valide le tableau `evenements`, vérifie l'idempotence via `client_event_id`, déclenche l'analyse d'anomalies après création du passage et s'appuie sur une file locale persistée côté agent avec interruption et reprise sans doublon.
-
-## Decision 11. Lecture fidèle des résultats de synchronisation et verrouillage du scan unitaire
-- **Décision :** L'interface `/scan` compte les statuts retournés dans `data.resultats` (`accepte`, `doublon`, `rejete`) plutôt que des clés absentes, verrouille le bouton de scan unitaire contre le double clic, et permet de vider ou coller librement le jeton d'un badge ou de lancer une simulation de 20 scans.
+## Décision 8 — Isolation de `/connexion`, sidebars dédiées par rôle et suivi de synchronisation
+- **Choix retenu :** isoler `/connexion`, fournir des navigations adaptées à chaque rôle (`agent` vers `/scan`, `responsable` sur le pilotage, `parent` sur ses enfants et notifications) sans exposer `/scan` au responsable, verrouiller le scan unitaire contre le double clic et compter les statuts directement dans `data.resultats` (`accepte`, `doublon`, `rejete`)[cite: 3, 5, 6].
+- **Alternatives écartées :** afficher le poste de scan dans l'espace responsable ou compter la synchronisation sur des clés inexistantes de la réponse JSON[cite: 5, 6].
+- **Raison :** respecter strictement la séparation des rôles et refléter fidèlement le résultat réel de chaque lot synchronisé[cite: 5, 6].
